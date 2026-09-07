@@ -4,6 +4,11 @@ import tailwindConfig from '../../tailwind.config';
 import resolveConfig from 'tailwindcss/resolveConfig';
 import { ex0 } from '~/constants/examples';
 import { textPages } from '~/utils/textbookPages';
+import {
+	computeVariantMatrices,
+	type AttentionVariant,
+	type VariantMatrices
+} from '~/utils/attentionVariants';
 
 const { theme } = resolveConfig(tailwindConfig);
 
@@ -46,6 +51,13 @@ export const predictedToken = writable<Probability>();
 export const tokens = writable<string[]>(ex0?.tokens);
 export const tokenIds = writable<number[]>(ex0?.tokenIds);
 
+// Attention variant: MHA (native GPT-2) or a mechanism simulated on GPT-2 activations
+export const attentionVariant = writable<AttentionVariant>('mha');
+export const gqaNumKVHeads = writable(4); // GQA: KV heads (must divide 12); 1 = MQA
+export const swaWindowSize = writable(4); // SWA: tokens attended, incl. current
+export const dsaTopK = writable(4); // DSA: tokens selected by the indexer per query row
+export const mlaLatentDim = writable(256); // MLA: shared latent c_KV dimension (simulated)
+
 export const modelMetaMap: Record<string, ModelMetaData> = {
 	gpt2: { layer_num: 12, attention_head_num: 12, dimension: 768, chunkTotal: 63 },
 	'gpt2-medium': { layer_num: 24, attention_head_num: 16, dimension: 1024 },
@@ -77,6 +89,43 @@ export const inputText = writable(inputTextExample[initialExIdx]);
 const initialSelectedModel = 'gpt2';
 export const selectedModel = writable(initialSelectedModel);
 export const modelMeta = derived(selectedModel, ($selectedModel) => modelMetaMap[$selectedModel]);
+
+/**
+ * Client-side computed per-head matrices for GQA / SWA / DSA, indexed
+ * [blockIdx][headIdx]. Null in MHA/MLA mode (ONNX tensors are used directly)
+ * or while the required activations are unavailable (e.g. cached examples).
+ */
+export const variantMatrices = derived<
+	[
+		typeof modelData,
+		typeof attentionVariant,
+		typeof gqaNumKVHeads,
+		typeof swaWindowSize,
+		typeof dsaTopK,
+		typeof modelMeta
+	],
+	(VariantMatrices | null)[][] | null
+>(
+	[modelData, attentionVariant, gqaNumKVHeads, swaWindowSize, dsaTopK, modelMeta],
+	([$modelData, $variant, $nKV, $swaWindow, $topK, $meta]) => {
+		if ($variant === 'mha' || $variant === 'mla' || !$modelData?.outputs) return null;
+		return Array.from({ length: $meta.layer_num }, (_, i) =>
+			Array.from({ length: $meta.attention_head_num }, (_, h) =>
+				computeVariantMatrices({
+					modelData: $modelData,
+					blockIdx: i,
+					headIdx: h,
+					headNum: $meta.attention_head_num,
+					dimension: $meta.dimension,
+					variant: $variant,
+					numKVHeads: $nKV,
+					windowSize: $swaWindow,
+					dsaTopK: $topK
+				})
+			)
+		);
+	}
+);
 
 // Temperature setting
 export const initialTemperature = 0.8;

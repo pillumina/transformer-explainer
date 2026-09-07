@@ -1,5 +1,6 @@
 const CACHE_PREFIX = 'onnx-model-cache';
-const CACHE_NAME = `${CACHE_PREFIX}-v2`;
+// v3: model re-exported with per-head Q / K^T outputs (attention variants)
+const CACHE_NAME = `${CACHE_PREFIX}-v3`;
 
 async function fetchModelChunks(chunkUrls) {
 	await clearOldCaches();

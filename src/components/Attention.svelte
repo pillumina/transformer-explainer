@@ -7,10 +7,14 @@
 		expandedBlock,
 		headGap,
 		hoveredMatrixCell,
-		attentionHeadIdx
-	} from '~/store';
+		attentionHeadIdx,
+		attentionVariant,
+				gqaNumKVHeads
+		} from '~/store';
 	import classNames from 'classnames';
 	import AttentionMatrix from '~/components/AttentionMatrix.svelte';
+	import VariantControls from '~/components/VariantControls.svelte';
+	import { kvHeadForQuery, GROUP_COLORS } from '~/utils/attentionVariants';
 
 	import { setContext, getContext } from 'svelte';
 	import { Tooltip } from 'flowbite-svelte';
@@ -22,6 +26,23 @@
 	setContext('block-id', 'attention');
 	const blockId = getContext('block-id');
 	$: isAttentionExpanded = $expandedBlock.id === blockId;
+
+	// GQA: the query head h reads from KV head g(h); the K/V vector shown here is
+	// that group's slice, split horizontally into n_kv segments (one per KV head).
+	$: headNum = $modelMeta.attention_head_num;
+	$: nKV = $attentionVariant === 'gqa' ? $gqaNumKVHeads : headNum;
+	$: kvHeadIdx = kvHeadForQuery($attentionHeadIdx, headNum, $gqaNumKVHeads);
+	$: groupColorOf = (g: number) => GROUP_COLORS[g % GROUP_COLORS.length];
+	$: queriesPerKV = headNum / nKV;
+	$: groupStart = kvHeadIdx * queriesPerKV;
+	$: groupEnd = groupStart + queriesPerKV - 1;
+	$: variantTitle = {
+		mha: 'Multi-head Self Attention',
+		gqa: 'Grouped-Query Attention',
+		swa: 'Sliding-Window Attention',
+		dsa: 'DeepSeek Sparse Attention',
+		mla: 'Multi-head Latent Attention'
+	}[$attentionVariant];
 
 	const queryHeadVectorColor = 'bg-blue-400';
 	const keyHeadVectorColor = 'bg-red-400';
@@ -53,8 +74,11 @@
 		role="group"
 		data-click="attention-step-title"
 	>
-		<div class="w-max">
-			<TextbookTooltip id="self-attention">Multi-head Self Attention</TextbookTooltip>
+		<div class="title-row">
+			<div class="w-max">
+				<TextbookTooltip id="self-attention">{variantTitle}</TextbookTooltip>
+			</div>
+			<VariantControls className="variant-controls" />
 		</div>
 	</div>
 	<div class="content relative">
@@ -66,12 +90,18 @@
 		<div class="heads">
 			<HeadStack>
 				<div
-					class="head-block flex w-full items-center justify-between px-2"
+					class="head-block relative flex w-full items-center justify-between px-2"
 					style={`height:${$headContentHeight}px;`}
 				>
+					<!-- GQA sharing note lives in HeadGrid (active-group caption),
+						so it can never collide with the head-block layout -->
 					<div class="qkv flex h-full flex-col justify-center gap-[5rem] pl-[6rem]">
 						<div class="column key">
-							<div class="head1 title"><TextbookTooltip id="qkv">Key</TextbookTooltip></div>
+							<div class="head1 title">
+								<TextbookTooltip id="qkv"
+									>{#if $attentionVariant === 'gqa'}Key · KV {kvHeadIdx + 1} of {nKV}{:else}Key{/if}</TextbookTooltip
+								>
+							</div>
 
 							{#each $tokens as token, index}
 								<div
@@ -80,12 +110,26 @@
 									class:active={$hoveredMatrixCell.col === index}
 								>
 									<span class="label float">{token}</span>
-									<div class={`vector x1-12 ${keyHeadVectorColor}`}></div>
+									{#if $attentionVariant === 'gqa'}
+										<!-- one K vector per token, split across the n_kv KV heads -->
+										<div class="vector gqa-strip">
+											{#each Array(nKV) as _, g}
+												<div
+													class="gqa-seg"
+													class:active={g === kvHeadIdx}
+													style={`width:${100 / nKV}%;background:${groupColorOf(g)};`}
+												></div>
+											{/each}
+										</div>
+									{:else}
+										<div class={`vector x1-12 ${keyHeadVectorColor}`}></div>
+									{/if}
 								</div>
 							{/each}
 							<Tooltip class="popover" triggeredBy={'.step.attention .key .cell'} placement="right"
-								>Key, Head {$attentionHeadIdx + 1}, vector({$modelMeta.dimension /
-									$modelMeta.attention_head_num})</Tooltip
+								>{#if $attentionVariant === 'gqa'}Key, KV Head {kvHeadIdx + 1} of {nKV}; dark
+									segment = this query head's KV group, light = other KV heads{:else}Key, Head {$attentionHeadIdx +
+										1}, vector({$modelMeta.dimension / $modelMeta.attention_head_num}){/if}</Tooltip
 							>
 						</div>
 						<div class="column query">
@@ -109,19 +153,37 @@
 							>
 						</div>
 						<div class="column value">
-							<div class="head1 title"><TextbookTooltip id="qkv">Value</TextbookTooltip></div>
+							<div class="head1 title">
+								<TextbookTooltip id="qkv"
+									>{#if $attentionVariant === 'gqa'}Value · KV {kvHeadIdx + 1} of {nKV}{:else}Value{/if}</TextbookTooltip
+								>
+							</div>
 							{#each $tokens as token, index}
 								<div class="head1 cell x1-12 text-xs" class:last={index === $tokens.length - 1}>
 									<span class="label float">{token}</span>
-									<div class={`vector x1-12 ${valHeadVectorColor}`}></div>
+									{#if $attentionVariant === 'gqa'}
+										<!-- one V vector per token, split across the n_kv KV heads -->
+										<div class="vector gqa-strip">
+											{#each Array(nKV) as _, g}
+												<div
+													class="gqa-seg"
+													class:active={g === kvHeadIdx}
+													style={`width:${100 / nKV}%;background:${groupColorOf(g)};`}
+												></div>
+											{/each}
+										</div>
+									{:else}
+										<div class={`vector x1-12 ${valHeadVectorColor}`}></div>
+									{/if}
 								</div>
 							{/each}
 							<Tooltip
 								class="popover"
 								triggeredBy={'.step.attention .value .cell'}
 								placement="right"
-								>Value, Head {$attentionHeadIdx + 1}, vector({$modelMeta.dimension /
-									$modelMeta.attention_head_num})</Tooltip
+								>{#if $attentionVariant === 'gqa'}Value, KV Head {kvHeadIdx + 1} of {nKV}; dark
+									segment = this query head's KV group{:else}Value, Head {$attentionHeadIdx + 1},
+									vector({$modelMeta.dimension / $modelMeta.attention_head_num}){/if}</Tooltip
 							>
 						</div>
 					</div>
@@ -158,6 +220,46 @@
 	.attention {
 		> .title > div {
 			// cursor: help;
+		}
+		.title-row {
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			gap: 0.75rem;
+			flex-wrap: wrap;
+		}
+		.column .title {
+			white-space: nowrap;
+		}
+		// GQA: one K/V vector per token, split horizontally across n_kv KV heads.
+		// The active KV head (this query head's group) is solid; the rest are
+		// light so the sharing structure reads at a glance.
+		// Width/height mirror the global .vector token (12px × height/12)
+		// so the Sankey line anchors stay aligned with MHA mode.
+		.gqa-strip {
+			height: calc(var(--vector-height) / 12);
+			width: 12px;
+			display: flex;
+			overflow: hidden;
+			border-radius: 0.1rem;
+			flex-shrink: 0;
+		}
+		.gqa-seg {
+			height: 100%;
+			opacity: 0.25;
+			transition: opacity 0.2s;
+
+			&.active {
+				opacity: 1;
+			}
+		}
+		// GQA sharing note moved into HeadGrid's active-group caption — kept
+		// out of this component so it can never collide with head-block layout
+		.kv-share-dot {
+			width: 0.55rem;
+			height: 0.55rem;
+			border-radius: 999px;
+			flex-shrink: 0;
 		}
 		&.expanded {
 			.title,

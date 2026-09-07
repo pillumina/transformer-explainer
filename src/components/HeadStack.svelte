@@ -5,13 +5,27 @@
 		attentionHeadIdx,
 		attentionHeadIdxTemp,
 		isOnAnimation,
-		userId
+		isExpandOrCollapseRunning,
+		userId,
+		attentionVariant,
+		gqaNumKVHeads,
+		expandedBlock
 	} from '~/store';
 	import { onMount } from 'svelte';
+	import { fly } from 'svelte/transition';
 	import { gsap, Power1 } from '~/utils/gsap';
 	import { AngleLeftOutline, AngleRightOutline } from 'flowbite-svelte-icons';
 	import TextbookTooltip from './common/TextbookTooltip.svelte';
 	import { textPages } from '~/utils/textbookPages';
+	import { kvHeadForQuery } from '~/utils/attentionVariants';
+	import HeadGrid from './HeadGrid.svelte';
+	import LongContextPreview from './LongContextPreview.svelte';
+
+	$: kvHeadLabel = kvHeadForQuery(
+		$attentionHeadIdxTemp,
+		$modelMeta.attention_head_num,
+		$gqaNumKVHeads
+	);
 
 	const asyncUpdateAttentionIdx = () => {
 		setTimeout(() => {
@@ -300,22 +314,34 @@
 </script>
 
 <div class="multi-head flex w-full" data-click="attention-head">
+	<LongContextPreview className="lc-corner" />
 	<div class="head-title absolute bottom-2 right-3 text-right text-gray-400">
-		<TextbookTooltip id="multi-head">
-			<span class="title-text"
-				>Head {$attentionHeadIdxTemp + 1} of {$modelMeta.attention_head_num}</span
-			></TextbookTooltip
-		>
-		<button
-			on:click={onClickPrev}
-			disabled={$isOnAnimation || disablePagination}
-			data-click="attention-head-prev-btn"><AngleLeftOutline size="sm"></AngleLeftOutline></button
-		>
-		<button
-			on:click={onClickNext}
-			disabled={$isOnAnimation || disablePagination}
-			data-click="attention-head-next-btn"><AngleRightOutline size="sm"></AngleRightOutline></button
-		>
+		{#if $expandedBlock.id !== null && !$isExpandOrCollapseRunning}
+			<!-- thumbnails only while expanded AND after the expand animation:
+				mounting the bar mid-animation triggers a layout pass that kills
+				the sankey line drawing -->
+			<div in:fly={{ y: 8, duration: 300 }}>
+				<HeadGrid className="head-grid-nav" />
+			</div>
+		{/if}
+		<div class="head-nav">
+			<TextbookTooltip id="multi-head">
+				<span class="title-text"
+					>Head {$attentionHeadIdxTemp + 1} of {$modelMeta.attention_head_num}{#if $attentionVariant === 'gqa'}
+						· KV head {kvHeadLabel + 1} of {$gqaNumKVHeads}{/if}</span
+				></TextbookTooltip
+			>
+			<button
+				on:click={onClickPrev}
+				disabled={$isOnAnimation || disablePagination}
+				data-click="attention-head-prev-btn"><AngleLeftOutline size="sm"></AngleLeftOutline></button
+			>
+			<button
+				on:click={onClickNext}
+				disabled={$isOnAnimation || disablePagination}
+				data-click="attention-head-next-btn"><AngleRightOutline size="sm"></AngleRightOutline></button
+			>
+		</div>
 	</div>
 	<div class={'head-content'} bind:this={headContent}>
 		<slot></slot>
@@ -341,6 +367,12 @@
 		align-items: center;
 		gap: 0.3rem;
 		justify-content: space-between;
+
+		.head-nav {
+			display: flex;
+			align-items: center;
+			gap: 0.3rem;
+		}
 	}
 
 	.multi-head {

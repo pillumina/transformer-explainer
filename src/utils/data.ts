@@ -12,6 +12,33 @@ import {
 import { get } from 'svelte/store';
 import { reshapeArray } from './array';
 import { showFlowAnimation } from './animation';
+import { verifyMhaAgainstOnnx } from './attentionVariants';
+import { variantMatrices } from '~/store';
+
+// Dev-only: sanity checks for the attention-variant math.
+// __teVerify(b)  — recomputed MHA (from exported Q/K^T) vs the ONNX graph's own outputs
+// __teVariant(b) — current client-side computed GQA/SWA matrices
+if (import.meta.env.DEV && typeof window !== 'undefined') {
+	(window as any).__teVerify = (blockIdx = 0) =>
+		verifyMhaAgainstOnnx(
+			get(modelData),
+			blockIdx,
+			modelMetaMap.gpt2.attention_head_num,
+			modelMetaMap.gpt2.dimension
+		);
+	(window as any).__teVariant = (blockIdx = 0) => get(variantMatrices)?.[blockIdx];
+	(window as any).__teOutputs = (blockIdx = 0) => get(modelData)?.outputs;
+	(window as any).__teData = () => {
+		const outputs = get(modelData)?.outputs ?? {};
+		return {
+			isExample: !outputs['block_0_attn_head_0_q'],
+			outputCount: Object.keys(outputs).length,
+			hasQ: !!outputs['block_0_attn_head_0_q'],
+			hasKT: !!outputs['block_0_attn_head_0_k_transposed'],
+			qShape: outputs['block_0_attn_head_0_q']?.dims
+		};
+	};
+}
 
 export const fakeRunWithCachedData = async ({
 	cachedData,
@@ -344,7 +371,10 @@ const attentionTensors = Array(modelMetaMap.gpt2.layer_num)
 				`block_${i}_attn_head_${j}_attn_scaled`,
 				`block_${i}_attn_head_${j}_attn_masked`,
 				`block_${i}_attn_head_${j}_attn_softmax`,
-				`block_${i}_attn_head_${j}_attn_dropout`
+				`block_${i}_attn_head_${j}_attn_dropout`,
+				// per-head projections, used by attention-variant math (GQA etc.)
+				`block_${i}_attn_head_${j}_q`,
+				`block_${i}_attn_head_${j}_k_transposed`
 			]);
 	});
 

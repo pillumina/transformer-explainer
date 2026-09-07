@@ -59,6 +59,18 @@
 
 		if (!$isMobile) {
 			await fetchModel();
+
+			// Re-run the current input with the real model: until this happens
+			// modelData holds the cached example run, which ships MHA tensors
+			// only — attention variants (GQA) have nothing to compute from and
+			// would stay on placeholder matrices (the inputText subscription
+			// never fires again on its own; a same-value store update is a no-op).
+			await runModel({
+				tokenizer: gpt2Tokenizer,
+				input: $inputText.trim(),
+				temperature: $temperature,
+				sampling: $sampling
+			});
 		}
 
 		return unsubscribe;

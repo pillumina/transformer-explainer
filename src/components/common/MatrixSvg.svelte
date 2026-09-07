@@ -181,28 +181,29 @@
 				//
 
 				cells = rows
-					.selectAll('circle.cell')
-					.data((d, rowIndex) => d.map((cell, colIndex) => ({ cell, rowIndex, colIndex })))
-					.join('circle')
-					.attr('class', (d, i, arr) => {
-						const baseClass = `cell row-${d.rowIndex} col-${i}`;
-						const isLastCol = i === arr.length - 1;
-						const isLastRow = d.rowIndex === arr.length - 1;
-						const lastClass = isLastRow || isLastCol ? ' last' : '';
-						return baseClass + lastClass;
-					})
-					.attr(transpose ? 'cy' : 'cx', (d, i) => cellWidth / 2 + i * cellWidth + i * colGap)
-					.attr(transpose ? 'cx' : 'cy', 0)
-					.attr('r', cellWidth / 2)
-					.attr('stroke', (d) => (!Number.isFinite(d.cell) ? 'none' : theme.colors.gray[200]))
-					.on('mouseenter', onCellOver)
-					.on('mouseleave', onCellOut)
-					.transition()
-					.duration(100)
-					.attr('fill', function (d, i) {
-						if (!Number.isFinite(d.cell)) return theme.colors.gray[200];
-						return matrixColorScale(d.cell, i);
-					});
+						.selectAll('circle.cell')
+						.data((d, rowIndex) => d.map((cell, colIndex) => ({ cell, rowIndex, colIndex })))
+						.join('circle')
+						.attr('class', (d, i, arr) => {
+							const baseClass = `cell row-${d.rowIndex} col-${i}`;
+							const isLastCol = i === arr.length - 1;
+							const isLastRow = d.rowIndex === arr.length - 1;
+							const lastClass = isLastRow || isLastCol ? ' last' : '';
+							return baseClass + lastClass;
+						})
+						.attr(transpose ? 'cy' : 'cx', (d, i) => cellWidth / 2 + i * cellWidth + i * colGap)
+						.attr(transpose ? 'cx' : 'cy', 0)
+						.attr('r', cellWidth / 2)
+						.attr('stroke', (d) => (!Number.isFinite(d.cell) ? 'none' : theme.colors.gray[200]))
+						.on('mouseenter', onCellOver)
+						.on('mouseleave', onCellOut)
+						// fill is applied synchronously (like the rect branch): a deferred
+						// transition here races with reactive redraws — an interrupted
+						// transition leaves stale colors (breaks the DSA/SWA gray masking)
+						.attr('fill', function (d, i) {
+							if (!Number.isFinite(d.cell)) return theme.colors.gray[200];
+							return matrixColorScale(d.cell, i);
+						});
 			}
 		}
 	};
